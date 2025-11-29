@@ -82,7 +82,7 @@ jobs:
 
       - name: Create issue if manual upload needed
         if: ${{ github.event_name == 'release' && steps.upload.outputs.success != 'true' }}
-        uses: peter-evans/create-issue-from-file@v5
+        uses: peter-evans/create-issue-from-file@v6
         with:
           title: "📤 Upload v${{ steps.version.outputs.version }} to Dev Center"
           content-filepath: .github/ISSUE_TEMPLATE/dev-center-upload.md
