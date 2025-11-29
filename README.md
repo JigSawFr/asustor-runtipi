@@ -31,6 +31,23 @@
 
 ---
 
+## 📚 Table of Contents
+
+- 🤔 [What is Runtipi?](#-what-is-runtipi)
+- 🏪 [Custom App Stores](#-custom-app-stores)
+- ⚠️ [Prerequisites](#️-prerequisites)
+- ⚡ [Quick Start](#-quick-start)
+- ✨ [Features](#-features)
+- ⚙️ [Configuration](#️-configuration)
+- 💾 [Backup & Restore](#-backup--restore)
+- 🔐 [Cloudflare SSL Setup](#-cloudflare-ssl-setup)
+- 🔄 [Upgrade Guide](#-upgrade-guide)
+- 🔧 [Troubleshooting](#-troubleshooting)
+- 🛠️ [Developer Guide](#️-developer-guide)
+- 🙏 [Acknowledgements](#-acknowledgements)
+
+---
+
 ## 🤔 What is Runtipi?
 
 [**Runtipi**](https://runtipi.io/) is an open-source homeserver management platform that makes self-hosting easy and accessible to everyone.
@@ -87,21 +104,6 @@ https://github.com/JigSawFr/tipi-store
 
 > [!NOTE]
 > Works perfectly on your ASUSTOR NAS with this package! 🎉
-
----
-
-## 🚀 Table of Contents
-
-- ⚠️ [Prerequisites](#️-prerequisites)
-- ⚡ [Quick Start](#-quick-start)
-- ✨ [Features](#-features)
-- ⚙️ [Configuration](#️-configuration)
-- 💾 [Backup & Restore](#-backup--restore)
-- 🔐 [Cloudflare SSL Setup](#-cloudflare-ssl-setup)
-- 🔄 [Upgrade Guide](#-upgrade-guide)
-- 🔧 [Troubleshooting](#-troubleshooting)
-- 🛠️ [Developer Guide](#️-developer-guide)
-- 🙏 [Acknowledgements](#-acknowledgements)
 
 ---
 
