@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -82,21 +82,21 @@ jobs:
           done
 
       - name: Upload x86-64 APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: io.runtipi_${{ steps.version.outputs.version }}_x86-64
           path: releases/io.runtipi_*_x86-64.apk
           retention-days: 30
 
       - name: Upload ARM64 APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: io.runtipi_${{ steps.version.outputs.version }}_arm64
           path: releases/io.runtipi_*_arm64.apk
           retention-days: 30
 
       - name: Upload checksums
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: checksums
           path: releases/checksums.sha256
