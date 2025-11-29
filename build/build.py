@@ -336,6 +336,37 @@ def copy_license():
 # ============================================================================
 
 
+def safe_extract_zip(zip_path: Path, dest_path: Path):
+    """Safely extract a ZIP file, preventing path traversal attacks (zip slip).
+    
+    This function validates that all extracted files stay within the destination
+    directory, preventing malicious archives from writing files outside the
+    intended location.
+    
+    Args:
+        zip_path: Path to the ZIP file to extract
+        dest_path: Destination directory for extraction
+    
+    Raises:
+        ValueError: If a path traversal attempt is detected
+    """
+    dest_path = dest_path.resolve()
+    
+    with zipfile.ZipFile(zip_path, 'r') as zip_file:
+        for member in zip_file.namelist():
+            # Compute the full path where the file would be extracted
+            member_path = (dest_path / member).resolve()
+            
+            # Check that the path is within the destination directory
+            try:
+                member_path.relative_to(dest_path)
+            except ValueError:
+                raise ValueError(f"Path traversal detected in ZIP: {member}")
+            
+            # Extract the member
+            zip_file.extract(member, dest_path)
+
+
 def convert_to_unix_line_endings(file_path: Path):
     """Convert a file from Windows (CRLF) to Unix (LF) line endings."""
     try:
@@ -778,8 +809,7 @@ def list_apk_contents(apk_path: Path, verbose: bool = False):
     temp_dir = Path(tempfile.mkdtemp(prefix='APKG-List-'))
     
     try:
-        with zipfile.ZipFile(apk_path, 'r') as apk_zip:
-            apk_zip.extractall(temp_dir)
+        safe_extract_zip(apk_path, temp_dir)
         
         # Read version
         version_file = temp_dir / 'apkg-version'
@@ -851,9 +881,8 @@ def extract_apk(apk_path: Path, destination: Path = None, force: bool = False, v
     temp_dir = Path(tempfile.mkdtemp(prefix='APKG-Extract-'))
     
     try:
-        # Extract ZIP (APK)
-        with zipfile.ZipFile(apk_path, 'r') as apk_zip:
-            apk_zip.extractall(temp_dir)
+        # Extract ZIP (APK) safely
+        safe_extract_zip(apk_path, temp_dir)
         
         # Verify APK format
         version_file = temp_dir / 'apkg-version'
