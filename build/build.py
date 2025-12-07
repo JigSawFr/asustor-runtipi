@@ -22,12 +22,14 @@ import json
 import re
 import hashlib
 import struct
+import time
 import urllib.request
 import urllib.error
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Any
 
-__version__ = '1.5.0'
+__version__ = '1.6.0'
 
 # Resolve paths - script is in build/ folder, project root is parent
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -87,35 +89,95 @@ def print_error(msg):
 
 
 # ============================================================================
+# NETWORK UTILITIES
+# ============================================================================
+
+def fetch_with_retry(
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+    max_retries: int = 3,
+    timeout: int = 15,
+    backoff_factor: float = 2.0
+) -> Optional[bytes]:
+    """Fetch URL content with retry and exponential backoff.
+
+    Args:
+        url: URL to fetch
+        headers: Optional HTTP headers
+        max_retries: Maximum number of retry attempts
+        timeout: Request timeout in seconds
+        backoff_factor: Multiplier for exponential backoff
+
+    Returns:
+        Response bytes or None on failure
+    """
+    if headers is None:
+        headers = {'User-Agent': 'ASUSTOR-APK-Builder'}
+
+    last_error: Optional[Exception] = None
+
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return response.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                # Don't retry on 404
+                return None
+            last_error = e
+        except (urllib.error.URLError, TimeoutError) as e:
+            last_error = e
+        except Exception as e:
+            last_error = e
+
+        if attempt < max_retries - 1:
+            wait_time = backoff_factor ** attempt
+            print_info(f"Retry {attempt + 1}/{max_retries} in {wait_time:.1f}s...")
+            time.sleep(wait_time)
+
+    if last_error:
+        print_warn(f"Failed after {max_retries} attempts: {last_error}")
+    return None
+
+
+# ============================================================================
 # CHANGELOG GENERATION
 # ============================================================================
 
 def fetch_github_release_notes(version: str) -> str:
     """Fetch release notes from GitHub for a specific version."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/v{version}"
-    
+
+    headers = {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'ASUSTOR-APK-Builder'
+    }
+
+    data = fetch_with_retry(url, headers=headers, max_retries=3, timeout=10)
+
+    if data is None:
+        print_warn(f"No GitHub release found for v{version}")
+        return ''
+
     try:
-        req = urllib.request.Request(url, headers={
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'ASUSTOR-APK-Builder'
-        })
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            return data.get('body', '')
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            print_warn(f"No GitHub release found for v{version}")
-        else:
-            print_warn(f"GitHub API error: {e.code}")
-        return ''
-    except Exception as e:
-        print_warn(f"Could not fetch release notes: {e}")
+        release_data = json.loads(data.decode('utf-8'))
+        return release_data.get('body', '')
+    except json.JSONDecodeError as e:
+        print_warn(f"Failed to parse release notes: {e}")
         return ''
 
 
-def parse_github_release_notes(body: str) -> dict:
-    """Parse GitHub release notes into sections."""
-    sections = {
+def parse_github_release_notes(body: str) -> Dict[str, List[str]]:
+    """Parse GitHub release notes into sections.
+
+    Args:
+        body: Raw release notes markdown
+
+    Returns:
+        Dictionary mapping section names to lists of items
+    """
+    sections: Dict[str, List[str]] = {
         'added': [],
         'fixed': [],
         'improved': [],
@@ -158,9 +220,13 @@ def parse_github_release_notes(body: str) -> dict:
     return sections
 
 
-def load_package_notes() -> dict:
-    """Load package-specific notes from package-notes.md."""
-    notes = {
+def load_package_notes() -> Dict[str, Any]:
+    """Load package-specific notes from package-notes.md.
+
+    Returns:
+        Dictionary with 'current' (list) and 'history' (dict) keys
+    """
+    notes: Dict[str, Any] = {
         'current': [],
         'history': {}  # version -> list of notes
     }
@@ -203,13 +269,20 @@ def load_package_notes() -> dict:
     return notes
 
 
-def generate_changelog(version: str, package_version: str = None, is_dev: bool = False) -> str:
+def generate_changelog(
+    version: str,
+    package_version: Optional[str] = None,
+    is_dev: bool = False
+) -> str:
     """Generate changelog.txt content.
-    
+
     Args:
         version: Base Runtipi version (e.g., "4.6.5")
         package_version: Full package version (e.g., "4.6.5.r1" or "4.6.5.dev3")
         is_dev: Whether this is a dev build
+
+    Returns:
+        Formatted changelog content as string
     """
     today = datetime.now().strftime('%Y-%m-%d')
     lines = []
@@ -290,7 +363,11 @@ def generate_changelog(version: str, package_version: str = None, is_dev: bool =
     return '\n'.join(lines)
 
 
-def update_changelog(version: str, package_version: str = None, is_dev: bool = False):
+def update_changelog(
+    version: str,
+    package_version: Optional[str] = None,
+    is_dev: bool = False
+) -> None:
     """Update CHANGELOG.md and copy to changelog.txt. Skip for dev builds."""
     if is_dev:
         print_info("Skipping changelog (dev build)")
@@ -309,7 +386,7 @@ def update_changelog(version: str, package_version: str = None, is_dev: bool = F
     print_success("Changelog updated")
 
 
-def copy_license():
+def copy_license() -> None:
     """Copy LICENSE to apk/CONTROL/license.txt with current year."""
     if not LICENSE_SRC.exists():
         print_warn("LICENSE file not found, skipping")
@@ -366,8 +443,12 @@ def safe_extract_zip(zip_path: Path, dest_path: Path):
             zip_file.extract(member, dest_path)
 
 
-def convert_to_unix_line_endings(file_path: Path):
-    """Convert a file from Windows (CRLF) to Unix (LF) line endings."""
+def convert_to_unix_line_endings(file_path: Path) -> bool:
+    """Convert a file from Windows (CRLF) to Unix (LF) line endings.
+
+    Returns:
+        True if conversion was performed, False otherwise
+    """
     try:
         content = file_path.read_bytes()
         if b'\r\n' in content:

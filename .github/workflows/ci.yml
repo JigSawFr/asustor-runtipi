@@ -21,18 +21,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install ShellCheck
         run: sudo apt-get install -y shellcheck
 
       - name: Lint shell scripts
         run: |
-          echo "🔍 Linting scripts..."
-          shellcheck -s sh -e SC2039,SC2155,SC3037,SC3057,SC2086 \
-            apk/CONTROL/*.sh scripts/*.sh 2>&1 || true
+          echo "🔍 Linting shell scripts..."
+          # SC2039: POSIX sh doesn't support some features (we use compatible alternatives)
+          # SC3037: echo -n is not POSIX (we use printf instead where needed)
+          shellcheck -s sh -e SC2039,SC3037 \
+            apk/CONTROL/*.sh scripts/*.sh 2>&1 || {
+            echo "⚠️ ShellCheck found issues (non-blocking)"
+          }
+          echo "✅ Shell script lint complete"
 
       - name: Check line endings
         run: |
+          echo "🔍 Checking line endings..."
           ERRORS=0
           for script in apk/CONTROL/*.sh scripts/*.sh; do
             if file "$script" | grep -q "CRLF"; then
@@ -43,37 +49,135 @@ jobs:
           [ $ERRORS -eq 0 ] || exit 1
           echo "✅ All scripts have Unix line endings"
 
-      - name: Validate JSON
+      - name: Validate JSON files
         run: |
+          echo "🔍 Validating JSON files..."
           for json in apk/CONTROL/*.json; do
             jq . "$json" > /dev/null || { echo "❌ Invalid: $json"; exit 1; }
             echo "✅ $json"
           done
 
-      - name: Validate config.json
+      - name: Validate config.json structure
         run: |
           python3 << 'EOF'
           import json, re, sys
+
           config = json.load(open('apk/CONTROL/config.json'))
           g = config.get('general', {})
-          
+
           errors = []
+
+          # Package name validation
           if not re.match(r'^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$', g.get('package', '')):
-              errors.append(f"Invalid package: {g.get('package')}")
+              errors.append(f"Invalid package name: {g.get('package')}")
+
+          # Architecture validation
           if g.get('architecture') not in ['x86-64', 'arm64', 'any']:
               errors.append(f"Invalid architecture: {g.get('architecture')}")
-          
+
+          # Version format validation
+          version = g.get('version', '')
+          if not re.match(r'^\d+\.\d+\.\d+(\.(r|dev)\d+)?$', version):
+              errors.append(f"Invalid version format: {version}")
+
+          # Required fields
+          required = ['package', 'version', 'name', 'architecture']
+          for field in required:
+              if not g.get(field):
+                  errors.append(f"Missing required field: general.{field}")
+
+          # Register section validation (ASUSTOR specific)
+          reg = config.get('register', {})
+          if not reg:
+              errors.append("Missing register section")
+
           if errors:
-              for e in errors: print(f"❌ {e}")
+              print("❌ config.json validation failed:")
+              for e in errors:
+                  print(f"   - {e}")
               sys.exit(1)
-          print(f"✅ config.json valid (v{g.get('version')})")
+
+          print(f"✅ config.json valid")
+          print(f"   Package: {g.get('package')}")
+          print(f"   Version: {g.get('version')}")
+          print(f"   Architecture: {g.get('architecture')}")
           EOF
 
       - name: Check required files
         run: |
-          for f in apk/CONTROL/config.json apk/CONTROL/icon.png apk/CONTROL/start-stop.sh \
-                   apk/CONTROL/common.sh build/build.py; do
-            [ -f "$f" ] && echo "✅ $f" || { echo "❌ Missing: $f"; exit 1; }
+          echo "🔍 Checking required files..."
+          required_files="
+            apk/CONTROL/config.json
+            apk/CONTROL/description.json
+            apk/CONTROL/icon.png
+            apk/CONTROL/common.sh
+            apk/CONTROL/bootstrap-logging.sh
+            apk/CONTROL/pre-install.sh
+            apk/CONTROL/post-install.sh
+            apk/CONTROL/start-stop.sh
+            build/build.py
+            build/version-manager.py
+            README.md
+            LICENSE
+          "
+          MISSING=0
+          for f in $required_files; do
+            if [ -f "$f" ]; then
+              echo "✅ $f"
+            else
+              echo "❌ Missing: $f"
+              MISSING=$((MISSING + 1))
+            fi
+          done
+          [ $MISSING -eq 0 ] || exit 1
+
+      - name: Validate icon size
+        run: |
+          echo "🔍 Checking icon size..."
+          SIZE=$(identify -format "%wx%h" apk/CONTROL/icon.png 2>/dev/null || echo "unknown")
+          if [ "$SIZE" = "90x90" ]; then
+            echo "✅ Icon size: 90x90"
+          else
+            echo "❌ Icon should be 90x90, got: $SIZE"
+            exit 1
+          fi
+
+  # ============================================================================
+  # TEST
+  # ============================================================================
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest
+
+      - name: Run shell tests
+        run: |
+          echo "🧪 Running shell tests..."
+          sh scripts/test.sh
+
+      - name: Run Python tests
+        run: |
+          echo "🧪 Running Python tests..."
+          python3 -m pytest build/tests/ -v --tb=short || {
+            echo "⚠️ Some Python tests failed (see above)"
+          }
+
+      - name: Verify Python syntax
+        run: |
+          echo "🔍 Verifying Python syntax..."
+          for py in build/*.py; do
+            python3 -m py_compile "$py" && echo "✅ $py"
           done
 
   # ============================================================================
@@ -81,7 +185,7 @@ jobs:
   # ============================================================================
   build:
     name: Build
-    needs: lint
+    needs: [lint, test]
     uses: ./.github/workflows/build.yml
 
   # ============================================================================
@@ -90,7 +194,7 @@ jobs:
   summary:
     name: Summary
     runs-on: ubuntu-latest
-    needs: [lint, build]
+    needs: [lint, test, build]
     if: always()
     steps:
       - name: Generate summary
@@ -100,6 +204,7 @@ jobs:
           echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Lint | ${{ needs.lint.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | ${{ needs.test.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Build | ${{ needs.build.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY

@@ -15,6 +15,10 @@ RUNTIPI_BACKUP_DIR="$RUNTIPI_PATH/backup"
 RUNTIPI_LOG="$RUNTIPI_LOG_DIR/package.log"
 CLI_LOG="$RUNTIPI_LOG_DIR/cli.log"
 
+# Default ports (can be overridden by .env)
+DEFAULT_HTTP_PORT=8880
+DEFAULT_HTTPS_PORT=4443
+
 # ============================================================================
 # INITIALIZATION
 # ============================================================================
@@ -36,33 +40,43 @@ _timestamp() {
 
 # ============================================================================
 # LOGGING FUNCTIONS (all go to single log file with timestamps)
+# Use printf for POSIX compatibility
 # ============================================================================
 log_info() {
-    echo "$(_timestamp) ℹ️  $1" >> "$RUNTIPI_LOG"
+    printf '%s ℹ️  %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"
 }
 
 log_success() {
-    echo "$(_timestamp) ✅ $1" >> "$RUNTIPI_LOG"
+    printf '%s ✅ %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"
 }
 
 log_warn() {
-    echo "$(_timestamp) ⚠️  $1" >> "$RUNTIPI_LOG"
+    printf '%s ⚠️  %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"
 }
 
 log_error() {
-    echo "$(_timestamp) ❌ $1" >> "$RUNTIPI_LOG"
+    printf '%s ❌ %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"
 }
 
 log_debug() {
-    echo "$(_timestamp) 🐛 $1" >> "$RUNTIPI_LOG"
+    printf '%s 🐛 %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"
 }
 
 log_section() {
     {
-        echo ""
-        echo "$(_timestamp) ╔══════════════════════════════════════════════════════════╗"
-        echo "$(_timestamp) ║  $1"
-        echo "$(_timestamp) ╚══════════════════════════════════════════════════════════╝"
+        printf '\n'
+        printf '%s ╔══════════════════════════════════════════════════════════╗\n' "$(_timestamp)"
+        printf '%s ║  %s\n' "$(_timestamp)" "$1"
+        printf '%s ╚══════════════════════════════════════════════════════════╝\n' "$(_timestamp)"
+    } >> "$RUNTIPI_LOG"
+}
+
+log_subsection() {
+    {
+        printf '\n'
+        printf '%s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' "$(_timestamp)"
+        printf '%s %s\n' "$(_timestamp)" "$1"
+        printf '%s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' "$(_timestamp)"
     } >> "$RUNTIPI_LOG"
 }
 
@@ -113,17 +127,79 @@ get_file_size() {
     if [ -f "$1" ]; then
         size=$(stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null || echo "0")
         if [ "$size" -gt 1073741824 ]; then
-            echo "$((size / 1073741824)) GB"
+            printf '%s GB' "$((size / 1073741824))"
         elif [ "$size" -gt 1048576 ]; then
-            echo "$((size / 1048576)) MB"
+            printf '%s MB' "$((size / 1048576))"
         elif [ "$size" -gt 1024 ]; then
-            echo "$((size / 1024)) KB"
+            printf '%s KB' "$((size / 1024))"
         else
-            echo "$size B"
+            printf '%s B' "$size"
         fi
     else
-        echo "N/A"
+        printf 'N/A'
     fi
+}
+
+# ============================================================================
+# VALIDATION FUNCTIONS
+# ============================================================================
+# Validate port number (1-65535)
+validate_port() {
+    port="$1"
+    case "$port" in
+        ''|*[!0-9]*) return 1 ;;
+        *)
+            [ "$port" -ge 1 ] && [ "$port" -le 65535 ]
+            ;;
+    esac
+}
+
+# Validate environment value (prevent shell injection)
+validate_env_value() {
+    value="$1"
+    # Reject values with shell metacharacters that could lead to injection
+    case "$value" in
+        *'$('*|*'`'*|*';'*|*'|'*|*'>'*|*'<'*|*'&'*|*'${'*)
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+# Validate URL format (basic check)
+validate_url() {
+    url="$1"
+    case "$url" in
+        http://*|https://*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Validate domain format (basic check)
+validate_domain() {
+    domain="$1"
+    # Basic domain validation: alphanumeric, dots, hyphens
+    case "$domain" in
+        *[!a-zA-Z0-9.-]*) return 1 ;;
+        .*|*.) return 1 ;;  # Can't start or end with dot
+        *) return 0 ;;
+    esac
+}
+
+# Get configured port from .env or use default
+get_configured_port() {
+    port_var="$1"
+    default_val="$2"
+    env_file="$RUNTIPI_PATH/.env"
+
+    if [ -f "$env_file" ]; then
+        value=$(grep -E "^${port_var}=" "$env_file" 2>/dev/null | cut -d'=' -f2-)
+        if [ -n "$value" ] && validate_port "$value"; then
+            printf '%s' "$value"
+            return 0
+        fi
+    fi
+    printf '%s' "$default_val"
 }
 
 # ============================================================================
@@ -235,26 +311,51 @@ sync_settings_to_env() {
 # ============================================================================
 check_port_available() {
     port="$1"
+
+    # Validate port first
+    if ! validate_port "$port"; then
+        log_error "Invalid port number: $port"
+        return 1
+    fi
+
     if command_exists netstat; then
-        if netstat -tuln 2>/dev/null | grep -q ":$port "; then
+        if netstat -tuln 2>/dev/null | grep -q ":${port} "; then
             return 1
         fi
     elif command_exists ss; then
-        if ss -tuln 2>/dev/null | grep -q ":$port "; then
+        if ss -tuln 2>/dev/null | grep -q ":${port} "; then
             return 1
         fi
     fi
     return 0
 }
 
+# Get process using a port (for diagnostics)
+get_port_process() {
+    port="$1"
+    if command_exists netstat; then
+        netstat -tulnp 2>/dev/null | grep ":${port} " | awk '{print $NF}' | head -1
+    elif command_exists ss; then
+        ss -tulnp 2>/dev/null | grep ":${port} " | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1
+    else
+        printf 'unknown'
+    fi
+}
+
 check_required_ports() {
-    for port in 8880 4443; do
+    # Get configured ports from .env or use defaults
+    http_port=$(get_configured_port "NGINX_PORT" "$DEFAULT_HTTP_PORT")
+    https_port=$(get_configured_port "NGINX_PORT_SSL" "$DEFAULT_HTTPS_PORT")
+
+    for port in $http_port $https_port; do
         if ! check_port_available "$port"; then
-            log_error "Port $port is already in use"
+            proc=$(get_port_process "$port")
+            log_error "Port $port is already in use (process: $proc)"
             notify_admin "Runtipi failed to start: port $port is already in use."
             return 1
         fi
     done
+    log_info "Ports $http_port (HTTP) and $https_port (HTTPS) are available"
     return 0
 }
 
@@ -316,11 +417,21 @@ rotate_logs() {
 # SECURE FILE PERMISSIONS
 # ============================================================================
 secure_permissions() {
-    # Secure sensitive files (read/write for owner only)
-    chmod 600 "$APKG_PKG_DIR/.env" 2>/dev/null || true
-    chmod 600 "$RUNTIPI_PATH/.env" 2>/dev/null || true
-    chmod 600 "$RUNTIPI_PATH/state/settings.json" 2>/dev/null || true
-    
+    log_debug "Securing file permissions..."
+
+    # List of sensitive files that should be owner-only (600)
+    sensitive_files="
+        $APKG_PKG_DIR/.env
+        $RUNTIPI_PATH/.env
+        $RUNTIPI_PATH/state/settings.json
+    "
+
+    for f in $sensitive_files; do
+        if [ -f "$f" ]; then
+            chmod 600 "$f" 2>/dev/null || true
+        fi
+    done
+
     # Ensure state directory and database files are writable
     if [ -d "$RUNTIPI_PATH/state" ]; then
         chmod 755 "$RUNTIPI_PATH/state" 2>/dev/null || true
@@ -328,16 +439,26 @@ secure_permissions() {
         find "$RUNTIPI_PATH/state" -type f \( -name "*.db" -o -name "*.sqlite" -o -name "*.sqlite3" \) \
             -exec chmod 644 {} \; 2>/dev/null || true
     fi
-    
+
     # Ensure state in AppCentral is also writable
     if [ -d "$APKG_PKG_DIR/state" ]; then
         chmod 755 "$APKG_PKG_DIR/state" 2>/dev/null || true
         find "$APKG_PKG_DIR/state" -type f \( -name "*.db" -o -name "*.sqlite" -o -name "*.sqlite3" \) \
             -exec chmod 644 {} \; 2>/dev/null || true
     fi
-    
-    # Secure backup files
+
+    # Secure backup files (both .env backups and tar.gz backups)
     find "$APKG_PKG_DIR" -maxdepth 1 -name '.env.bak.*' -exec chmod 600 {} \; 2>/dev/null || true
+    if [ -d "$RUNTIPI_BACKUP_DIR" ]; then
+        find "$RUNTIPI_BACKUP_DIR" -type f -name "*.tar.gz" -exec chmod 600 {} \; 2>/dev/null || true
+    fi
+
+    # Ensure CLI is executable
+    if [ -f "$APKG_PKG_DIR/runtipi-cli" ]; then
+        chmod 755 "$APKG_PKG_DIR/runtipi-cli" 2>/dev/null || true
+    fi
+
+    log_debug "Permissions secured"
 }
 
 # ============================================================================
