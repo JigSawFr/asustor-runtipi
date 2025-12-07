@@ -9,20 +9,40 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SCRIPT_DIR/common.sh" ]; then
     . "$SCRIPT_DIR/common.sh"
+elif [ -f "$SCRIPT_DIR/bootstrap-logging.sh" ]; then
+    . "$SCRIPT_DIR/bootstrap-logging.sh"
+    secure_permissions() { chmod 600 "$APKG_PKG_DIR/.env" 2>/dev/null || true; }
 else
-    # Fallback if common.sh not available
+    # Fallback if no scripts available
     RUNTIPI_PATH="/share/Docker/RunTipi"
     RUNTIPI_LOG="$RUNTIPI_PATH/logs/package.log"
     mkdir -p "$RUNTIPI_PATH/logs"
-    _ts() { date '+%Y-%m-%d %H:%M:%S'; }
-    log_info() { echo "$(_ts) ℹ️  $1" >> "$RUNTIPI_LOG"; }
-    log_success() { echo "$(_ts) ✅ $1" >> "$RUNTIPI_LOG"; }
-    log_error() { echo "$(_ts) ❌ $1" >> "$RUNTIPI_LOG"; }
-    log_section() { echo "" >> "$RUNTIPI_LOG"; echo "$(_ts) ╔══════════════════════════════════════════════════════════╗" >> "$RUNTIPI_LOG"; echo "$(_ts) ║  $1" >> "$RUNTIPI_LOG"; echo "$(_ts) ╚══════════════════════════════════════════════════════════╝" >> "$RUNTIPI_LOG"; }
+    _timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
+    log_info() { printf '%s ℹ️  %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"; }
+    log_success() { printf '%s ✅ %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"; }
+    log_warn() { printf '%s ⚠️  %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"; }
+    log_error() { printf '%s ❌ %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"; }
+    log_section() {
+        printf '\n' >> "$RUNTIPI_LOG"
+        printf '%s ╔══════════════════════════════════════════════════════════╗\n' "$(_timestamp)" >> "$RUNTIPI_LOG"
+        printf '%s ║  %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"
+        printf '%s ╚══════════════════════════════════════════════════════════╝\n' "$(_timestamp)" >> "$RUNTIPI_LOG"
+    }
+    log_subsection() {
+        printf '\n' >> "$RUNTIPI_LOG"
+        printf '%s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' "$(_timestamp)" >> "$RUNTIPI_LOG"
+        printf '%s %s\n' "$(_timestamp)" "$1" >> "$RUNTIPI_LOG"
+        printf '%s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' "$(_timestamp)" >> "$RUNTIPI_LOG"
+    }
     get_architecture() { uname -m | sed 's/x86_64/x86-64/;s/aarch64/arm64/'; }
     is_supported_architecture() { arch=$(get_architecture); [ "$arch" = "x86-64" ] || [ "$arch" = "arm64" ]; }
-    get_cli_asset_name() { arch=$(get_architecture); [ "$arch" = "arm64" ] && echo "runtipi-cli-linux-aarch64" || echo "runtipi-cli-linux-x86_64"; }
+    get_cli_asset_name() { arch=$(get_architecture); [ "$arch" = "arm64" ] && printf 'runtipi-cli-linux-aarch64' || printf 'runtipi-cli-linux-x86_64'; }
     secure_permissions() { chmod 600 "$APKG_PKG_DIR/.env" 2>/dev/null || true; }
+    command_exists() { command -v "$1" >/dev/null 2>&1; }
+    validate_env_value() {
+        case "$1" in *'$('*|*'`'*|*';'*|*'|'*|*'>'*|*'<'*|*'&'*) return 1 ;; esac
+        return 0
+    }
 fi
 
 log_section "⚙️  POST-INSTALL v${APKG_PKG_VER}"
@@ -37,14 +57,11 @@ fi
 # ============================================================================
 # 🔍 DEPENDENCY CHECK
 # ============================================================================
-echo "" >> "$RUNTIPI_LOG"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-log_info "🔍 CHECK DEPENDENCIES"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log_subsection "🔍 CHECK DEPENDENCIES"
 
 log_info "Checking dependencies..."
 for cmd in openssl curl; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
+    if ! command_exists "$cmd"; then
         log_error "$cmd is missing"
         exit 1
     fi
@@ -64,24 +81,19 @@ log_success "Architecture: $(get_architecture)"
 # ============================================================================
 # 🔐 GENERATE SECRETS
 # ============================================================================
-echo "" >> "$RUNTIPI_LOG"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-log_info "🔐 GENERATE SECRETS"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log_subsection "🔐 GENERATE SECRETS"
 
 log_info "Generating secrets..."
-POSTGRES_PASSWORD=$(openssl rand -base64 32)
-JWT_SECRET=$(openssl rand -base64 32)
-RABBITMQ_PASSWORD=$(openssl rand -base64 32)
+POSTGRES_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
+JWT_SECRET=$(openssl rand -base64 32 | tr -d '\n')
+RABBITMQ_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
 log_success "Secrets generated"
 
 # ============================================================================
 # ⬇️ DOWNLOAD CLI
 # ============================================================================
-echo "" >> "$RUNTIPI_LOG"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-log_info "⬇️ DOWNLOAD RUNTIPI CLI"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log_subsection "⬇️ DOWNLOAD RUNTIPI CLI"
+
 ASSET=$(get_cli_asset_name)
 if [ -z "$ASSET" ]; then
     log_error "No CLI available for architecture: $(get_architecture)"
@@ -94,15 +106,35 @@ mkdir -p "$APKG_PKG_DIR/bin"
 
 # Extract base version (remove .devN or .rN suffix for dev/revision builds)
 # 4.6.5.dev3 -> 4.6.5, 4.6.5.r1 -> 4.6.5, 4.6.5 -> 4.6.5
-CLI_VERSION=$(echo "$APKG_PKG_VER" | sed 's/\.[dr][ev]*[0-9]*$//')
+CLI_VERSION=$(printf '%s' "$APKG_PKG_VER" | sed 's/\.[dr][ev]*[0-9]*$//')
 
-# Download CLI
+# Download CLI with retry
 URL="https://github.com/runtipi/runtipi/releases/download/v$CLI_VERSION/$ASSET.tar.gz"
 log_info "📥 Downloading from GitHub..."
 log_info "   URL: $URL"
 
-if ! curl -sL "$URL" -o "$APKG_PKG_DIR/runtipi-cli.tar.gz"; then
-    log_error "Failed to download CLI"
+download_cli() {
+    max_retries=3
+    retry=0
+    while [ $retry -lt $max_retries ]; do
+        if curl -fsSL --connect-timeout 30 --max-time 120 "$URL" -o "$APKG_PKG_DIR/runtipi-cli.tar.gz"; then
+            return 0
+        fi
+        retry=$((retry + 1))
+        log_warn "Download attempt $retry failed, retrying..."
+        sleep 2
+    done
+    return 1
+}
+
+if ! download_cli; then
+    log_error "Failed to download CLI after 3 attempts"
+    exit 1
+fi
+
+# Verify download (basic check)
+if [ ! -s "$APKG_PKG_DIR/runtipi-cli.tar.gz" ]; then
+    log_error "Downloaded file is empty"
     exit 1
 fi
 
@@ -115,16 +147,13 @@ fi
 
 mv "$APKG_PKG_DIR/$ASSET" "$APKG_PKG_DIR/runtipi-cli"
 rm -f "$APKG_PKG_DIR/runtipi-cli.tar.gz"
-chmod +x "$APKG_PKG_DIR/runtipi-cli"
+chmod 755 "$APKG_PKG_DIR/runtipi-cli"
 log_success "🎯 CLI v${CLI_VERSION} installed"
 
 # ============================================================================
 # 📂 CREATE RUNTIPI DIRECTORY
 # ============================================================================
-echo "" >> "$RUNTIPI_LOG"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-log_info "📂 CREATE DIRECTORIES"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log_subsection "📂 CREATE DIRECTORIES"
 
 if [ ! -d "$RUNTIPI_PATH" ]; then
     log_info "Creating RunTipi directory..."
@@ -147,10 +176,7 @@ fi
 # ============================================================================
 # 📝 ENVIRONMENT FILE MANAGEMENT
 # ============================================================================
-echo "" >> "$RUNTIPI_LOG"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-log_info "📝 CONFIGURE ENVIRONMENT"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log_subsection "📝 CONFIGURE ENVIRONMENT"
 
 ENV_FILE="$RUNTIPI_PATH/.env"
 
@@ -164,26 +190,36 @@ FORCE_VARS="TZ TIPI_VERSION DEMO_MODE INTERNAL_IP NODE_ENV"
 get_or_default() {
     var_name="$1"
     default_val="$2"
-    existing=$(grep -E "^$var_name=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || echo "")
-    
+    existing=$(grep -E "^${var_name}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || printf '')
+
     # Force replace certain variables
-    if echo "$FORCE_VARS" | grep -qw "$var_name"; then
-        echo "$default_val"
-    elif [ -n "$existing" ]; then
-        echo "$existing"
-    else
-        echo "$default_val"
-    fi
+    case " $FORCE_VARS " in
+        *" $var_name "*) printf '%s' "$default_val" ;;
+        *)
+            if [ -n "$existing" ]; then
+                printf '%s' "$existing"
+            else
+                printf '%s' "$default_val"
+            fi
+            ;;
+    esac
 }
 
-# Set variable in .env
+# Set variable in .env with validation
 set_env_var() {
     var_name="$1"
     value="$2"
-    if grep -q "^$var_name=" "$ENV_FILE" 2>/dev/null; then
-        sed -i "s|^$var_name=.*|$var_name=$value|" "$ENV_FILE"
+
+    # Validate value to prevent injection
+    if ! validate_env_value "$value"; then
+        log_warn "Invalid value for $var_name, using safe default"
+        return 1
+    fi
+
+    if grep -q "^${var_name}=" "$ENV_FILE" 2>/dev/null; then
+        sed -i "s|^${var_name}=.*|${var_name}=${value}|" "$ENV_FILE"
     else
-        echo "$var_name=$value" >> "$ENV_FILE"
+        printf '%s=%s\n' "$var_name" "$value" >> "$ENV_FILE"
     fi
 }
 
@@ -197,7 +233,7 @@ set_env_var "APPS_REPO_ID" "$(get_or_default APPS_REPO_ID 29ca930bfdaffa1dfabf57
 set_env_var "APPS_REPO_URL" "$(get_or_default APPS_REPO_URL https://github.com/runtipi/runtipi-appstore)"
 set_env_var "DEMO_MODE" "false"
 set_env_var "DNS_IP" "$(get_or_default DNS_IP 9.9.9.9)"
-set_env_var "DOMAIN" "$(get_or_default DOMAIN ${SERVER_NAME:-localhost})"
+set_env_var "DOMAIN" "$(get_or_default DOMAIN "${SERVER_NAME:-localhost}")"
 set_env_var "EXPERIMENTAL_INSECURE_COOKIE" "$(get_or_default EXPERIMENTAL_INSECURE_COOKIE false)"
 set_env_var "GUEST_DASHBOARD" "$(get_or_default GUEST_DASHBOARD true)"
 set_env_var "INTERNAL_IP" "${SERVER_ADDR:-127.0.0.1}"
@@ -214,9 +250,9 @@ set_env_var "TIPI_VERSION" "v${CLI_VERSION}"
 set_env_var "TZ" "${AS_NAS_TIMEZONE:-UTC}"
 
 # Database settings (preserve passwords if they exist)
-existing_pg_pass=$(grep -E "^POSTGRES_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || echo "")
-existing_jwt=$(grep -E "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || echo "")
-existing_rmq_pass=$(grep -E "^RABBITMQ_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || echo "")
+existing_pg_pass=$(grep -E "^POSTGRES_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || printf '')
+existing_jwt=$(grep -E "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || printf '')
+existing_rmq_pass=$(grep -E "^RABBITMQ_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || printf '')
 
 set_env_var "POSTGRES_DBNAME" "tipi"
 set_env_var "POSTGRES_HOST" "runtipi-db"
@@ -245,12 +281,9 @@ log_success "📄 .env configured"
 # ============================================================================
 # 💾 SAVE VERSION
 # ============================================================================
-echo "" >> "$RUNTIPI_LOG"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-log_info "💾 FINALIZE INSTALLATION"
-log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log_subsection "💾 FINALIZE INSTALLATION"
 
-echo "$APKG_PKG_VER" > "$APKG_PKG_DIR/VERSION"
+printf '%s' "$APKG_PKG_VER" > "$APKG_PKG_DIR/VERSION"
 log_info "Version saved: $APKG_PKG_VER"
 
 # ============================================================================
@@ -259,11 +292,11 @@ log_info "Version saved: $APKG_PKG_VER"
 log_info "🔒 Securing permissions..."
 secure_permissions
 
-echo "" >> "$RUNTIPI_LOG"
+printf '\n' >> "$RUNTIPI_LOG"
 log_success "🎉 Post-install completed successfully!"
 log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 log_info "📍 Data location: $RUNTIPI_PATH"
 log_info "🌐 Access Runtipi at http://NAS_IP:8880 after starting"
-echo "" >> "$RUNTIPI_LOG"
+printf '\n' >> "$RUNTIPI_LOG"
 
 exit 0

@@ -28,12 +28,13 @@ import sys
 import argparse
 import json
 import re
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 # Paths
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -86,6 +87,54 @@ def print_warn(msg): print(f"{Colors.YELLOW}⚠️  {msg}{Colors.RESET}")
 def print_error(msg): print(f"{Colors.RED}❌ {msg}{Colors.RESET}")
 
 
+def fetch_with_retry(
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+    max_retries: int = 3,
+    timeout: int = 15,
+    backoff_factor: float = 2.0
+) -> Optional[bytes]:
+    """Fetch URL content with retry and exponential backoff.
+
+    Args:
+        url: URL to fetch
+        headers: Optional HTTP headers
+        max_retries: Maximum number of retry attempts
+        timeout: Request timeout in seconds
+        backoff_factor: Multiplier for exponential backoff
+
+    Returns:
+        Response bytes or None on failure
+    """
+    if headers is None:
+        headers = {'User-Agent': 'ASUSTOR-Runtipi-Builder/1.0'}
+
+    last_error: Optional[Exception] = None
+
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return response.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            last_error = e
+        except (urllib.error.URLError, TimeoutError) as e:
+            last_error = e
+        except Exception as e:
+            last_error = e
+
+        if attempt < max_retries - 1:
+            wait_time = backoff_factor ** attempt
+            print_info(f"Retry {attempt + 1}/{max_retries} in {wait_time:.1f}s...")
+            time.sleep(wait_time)
+
+    if last_error:
+        print_warn(f"Failed after {max_retries} attempts: {last_error}")
+    return None
+
+
 class DockerImagesManager:
     """Manages Docker image versions for Runtipi."""
     
@@ -118,7 +167,7 @@ class DockerImagesManager:
     
     def fetch_from_github(self, runtipi_version: str) -> Dict[str, str]:
         """Fetch image versions from Runtipi CLI docker-compose.yml.
-        
+
         Strategy:
         1. Try to fetch docker-compose.yml from runtipi/cli repository via GitHub API
         2. Parse the YAML to extract image versions
@@ -126,20 +175,22 @@ class DockerImagesManager:
         4. Use defaults as last resort
         """
         images = DEFAULT_IMAGES.copy()
-        
+
         # Try to fetch docker-compose.yml from CLI repository via GitHub API
-        try:
-            print_info(f"Fetching docker-compose.yml from Runtipi CLI...")
-            
-            api_url = f"{GITHUB_API}/repos/{RUNTIPI_CLI_OWNER}/{RUNTIPI_CLI_REPO}/contents/{RUNTIPI_CLI_COMPOSE_PATH}"
-            req = urllib.request.Request(api_url, headers={
-                'User-Agent': 'ASUSTOR-Runtipi-Builder/1.0',
-                'Accept': 'application/vnd.github.raw+json'  # Get raw content directly
-            })
-            
-            with urllib.request.urlopen(req, timeout=10) as response:
-                compose_content = response.read().decode('utf-8')
-                
+        print_info("Fetching docker-compose.yml from Runtipi CLI...")
+
+        api_url = f"{GITHUB_API}/repos/{RUNTIPI_CLI_OWNER}/{RUNTIPI_CLI_REPO}/contents/{RUNTIPI_CLI_COMPOSE_PATH}"
+        headers = {
+            'User-Agent': 'ASUSTOR-Runtipi-Builder/1.0',
+            'Accept': 'application/vnd.github.raw+json'
+        }
+
+        data = fetch_with_retry(api_url, headers=headers, max_retries=3, timeout=15)
+
+        if data is not None:
+            try:
+                compose_content = data.decode('utf-8')
+
                 # Parse image versions from docker-compose.yml
                 # Pattern: image: traefik:v3.6.1
                 patterns = {
@@ -147,26 +198,27 @@ class DockerImagesManager:
                     'postgres': r'^\s*image:\s*(postgres:[^\s]+)',
                     'rabbitmq': r'^\s*image:\s*(rabbitmq:[^\s]+)',
                 }
-                
+
                 for key, pattern in patterns.items():
                     match = re.search(pattern, compose_content, re.MULTILINE)
                     if match:
                         images[key] = match.group(1)
                         print_info(f"  Found {key}: {images[key]}")
-                
+
                 print_success("docker-compose.yml parsed successfully")
-                
-        except urllib.error.HTTPError as e:
-            print_warn(f"Could not fetch CLI docker-compose.yml: HTTP {e.code}")
+
+            except Exception as e:
+                print_warn(f"Failed to parse docker-compose.yml: {e}")
+                print_info("Falling back to release notes...")
+                self._fetch_from_release_notes(runtipi_version, images)
+        else:
+            print_warn("Could not fetch CLI docker-compose.yml")
             print_info("Falling back to release notes...")
             self._fetch_from_release_notes(runtipi_version, images)
-        except Exception as e:
-            print_warn(f"Could not fetch CLI docker-compose.yml: {e}")
-            print_info("Using default versions")
-        
+
         # Add Runtipi image itself
         images['runtipi'] = f"ghcr.io/runtipi/runtipi:v{runtipi_version}"
-        
+
         return images
     
     def _fetch_from_release_notes(self, runtipi_version: str, images: Dict[str, str]):
