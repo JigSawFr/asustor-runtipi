@@ -82,21 +82,21 @@ jobs:
           done
 
       - name: Upload x86-64 APK
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: io.runtipi_${{ steps.version.outputs.version }}_x86-64
           path: releases/io.runtipi_*_x86-64.apk
           retention-days: 30
 
       - name: Upload ARM64 APK
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: io.runtipi_${{ steps.version.outputs.version }}_arm64
           path: releases/io.runtipi_*_arm64.apk
           retention-days: 30
 
       - name: Upload checksums
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: checksums
           path: releases/checksums.sha256
