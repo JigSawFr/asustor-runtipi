@@ -477,6 +477,137 @@ get_installed_version() {
 }
 
 # ============================================================================
+# CUSTOM APP STORE - Auto-add JigSaw's tipi-store on first start
+# ============================================================================
+CUSTOM_STORE_URL="https://github.com/JigSawFr/tipi-store"
+CUSTOM_STORE_BRANCH="main"
+CUSTOM_STORE_FLAG="$RUNTIPI_PATH/.custom-store-added"
+
+# Wait for the database container to be healthy
+wait_for_db() {
+    max_attempts="${1:-30}"
+    attempt=0
+    
+    log_info "⏳ Waiting for database to be ready..."
+    
+    while [ "$attempt" -lt "$max_attempts" ]; do
+        # Check if container exists and get health status
+        health=$(docker inspect --format='{{.State.Health.Status}}' runtipi-db 2>/dev/null || echo "not-found")
+        
+        case "$health" in
+            healthy)
+                log_success "Database container is healthy"
+                return 0
+                ;;
+            not-found)
+                # Container doesn't exist yet, wait
+                ;;
+            *)
+                # starting, unhealthy, etc.
+                ;;
+        esac
+        
+        attempt=$((attempt + 1))
+        log_info "  Waiting for database... ($attempt/$max_attempts) [status: $health]"
+        sleep 2
+    done
+    
+    log_warn "Database did not become healthy in time"
+    return 1
+}
+
+# Generate SHA256 hash for store URL (same as Runtipi does)
+generate_store_hash() {
+    url="$1"
+    echo -n "$url" | sha256sum | cut -d' ' -f1
+}
+
+# Add custom tipi-store to database
+add_custom_store() {
+    store_url="${1:-$CUSTOM_STORE_URL}"
+    store_branch="${2:-$CUSTOM_STORE_BRANCH}"
+    store_name="${3:-JigSaw Store}"
+    
+    # Generate hash (same method as Runtipi: SHA256 of URL)
+    store_hash=$(generate_store_hash "$store_url")
+    store_slug=$(echo "$store_name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+    
+    log_info "🏪 Adding custom app store: $store_name"
+    log_info "   URL: $store_url"
+    log_info "   Branch: $store_branch"
+    log_info "   Hash: $(mask_secret "$store_hash")"
+    
+    # Check if store already exists
+    exists=$(docker exec runtipi-db psql -U tipi -d tipi -tAc \
+        "SELECT COUNT(*) FROM app_store WHERE url = '$store_url';" 2>/dev/null || echo "0")
+    
+    if [ "$exists" != "0" ] && [ -n "$exists" ]; then
+        log_info "   Store already exists in database, skipping"
+        return 0
+    fi
+    
+    # Insert into database
+    if docker exec runtipi-db psql -U tipi -d tipi -c \
+        "INSERT INTO app_store (slug, hash, name, enabled, url, branch, created_at) 
+         VALUES ('$store_slug', '$store_hash', '$store_name', true, '$store_url', '$store_branch', NOW())
+         ON CONFLICT (url) DO NOTHING;" 2>/dev/null; then
+        log_success "   Store added to database"
+    else
+        log_error "   Failed to add store to database"
+        return 1
+    fi
+    
+    # Clone the repository
+    repos_dir="$RUNTIPI_PATH/repos/$store_hash"
+    if [ ! -d "$repos_dir" ]; then
+        log_info "   Cloning repository..."
+        if git clone --depth 1 --branch "$store_branch" "$store_url" "$repos_dir" 2>/dev/null; then
+            log_success "   Repository cloned to $repos_dir"
+        else
+            log_warn "   Failed to clone repository (will be cloned by Runtipi on next refresh)"
+        fi
+    else
+        log_info "   Repository already exists at $repos_dir"
+    fi
+    
+    return 0
+}
+
+# First-start hook: add custom store if not already done
+run_first_start_hook() {
+    # Skip if already done
+    if [ -f "$CUSTOM_STORE_FLAG" ]; then
+        log_info "🏪 Custom store already configured (skipping)"
+        return 0
+    fi
+    
+    log_section "🏪 First Start Hook - Adding Custom App Store"
+    
+    # Wait for database to be ready
+    if ! wait_for_db 30; then
+        log_warn "Could not add custom store: database not ready"
+        log_info "You can add it manually later via the Runtipi UI"
+        return 1
+    fi
+    
+    # Small delay to ensure DB is fully initialized
+    sleep 2
+    
+    # Add the custom store
+    if add_custom_store "$CUSTOM_STORE_URL" "$CUSTOM_STORE_BRANCH" "JigSaw Store"; then
+        # Create flag to prevent re-running
+        touch "$CUSTOM_STORE_FLAG"
+        log_success "🎉 Custom app store configured successfully!"
+        log_info "   Refresh the App Store in Runtipi UI to see new apps"
+        return 0
+    else
+        log_warn "Custom store could not be added automatically"
+        log_info "You can add it manually via Settings > App Stores in Runtipi UI"
+        return 1
+    fi
+}
+
+# ============================================================================
 # INITIALIZATION (call this at script start)
 # ============================================================================
 # Initialize logging when this file is sourced

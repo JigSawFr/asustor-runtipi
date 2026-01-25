@@ -4,6 +4,20 @@
 
 ---
 
+## [4.6.5.r2] - 2026-01-25
+
+> 📦 **Package revision** - Runtipi version unchanged (v4.6.5)
+
+### 📦 ASUSTOR Package
+
+#### 🐛 Fixed
+
+| Fix | Description |
+|-----|-------------|
+| 🔄 Sync Workflow | Fixed authentication and push issues in sync-upstream workflow |
+| 🛠️ Build Path | Fixed artifact path issue in sync-upstream workflow |
+| 🏪 Custom Store | Fixed custom store hook execution in start-stop script |
+
 ## [4.6.5.r1] - 2025-12-10
 
 > 📦 **Package revision** - Runtipi version unchanged (v4.6.5)

@@ -55,6 +55,10 @@ do_start() {
         sleep 3
         log_info "🔒 Securing permissions..."
         secure_permissions
+        
+        # Run first-start hook (add custom app store) in background
+        # This runs asynchronously to not block the service start
+        (run_first_start_hook) &
     else
         log_error "Failed to start service"
         notify_admin "Runtipi failed to start: CLI error"
