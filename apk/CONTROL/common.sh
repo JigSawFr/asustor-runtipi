@@ -202,7 +202,7 @@ sync_settings_to_env() {
     fi
 
     # Map JSON keys to ENV keys
-    keys="internalIp:INTERNAL_IP appsRepoUrl:APPS_REPO_URL domain:DOMAIN appDataPath:RUNTIPI_APP_DATA_PATH localDomain:LOCAL_DOMAIN guestDashboard:GUEST_DASHBOARD allowAutoThemes:ALLOW_AUTO_THEMES allowErrorMonitoring:ALLOW_ERROR_MONITORING persistTraefikConfig:PERSIST_TRAEFIK_CONFIG port:NGINX_PORT sslPort:NGINX_PORT_SSL listenIp:SERVER_ADDR timeZone:TZ eventsTimeout:QUEUE_TIMEOUT_IN_MINUTES advancedSettings:ADVANCED_SETTINGS forwardAuthUrl:RUNTIPI_FORWARD_AUTH_URL logLevel:LOG_LEVEL themeBase:THEME_BASE themeColor:THEME_COLOR"
+    keys="internalIp:INTERNAL_IP appsRepoUrl:APPS_REPO_URL domain:DOMAIN appDataPath:RUNTIPI_APP_DATA_PATH localDomain:LOCAL_DOMAIN guestDashboard:GUEST_DASHBOARD allowAutoThemes:ALLOW_AUTO_THEMES allowErrorMonitoring:ALLOW_ERROR_MONITORING persistTraefikConfig:PERSIST_TRAEFIK_CONFIG port:NGINX_PORT sslPort:NGINX_PORT_SSL listenIp:INTERNAL_IP timeZone:TZ eventsTimeout:QUEUE_TIMEOUT_IN_MINUTES advancedSettings:ADVANCED_SETTINGS forwardAuthUrl:RUNTIPI_FORWARD_AUTH_URL logLevel:LOG_LEVEL themeBase:THEME_BASE themeColor:THEME_COLOR maxBackups:MAX_BACKUPS"
 
     for mapping in $keys; do
         json_key="${mapping%%:*}"

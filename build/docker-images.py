@@ -52,7 +52,7 @@ RUNTIPI_CLI_COMPOSE_PATH = 'internal/assets/docker-compose.yml'
 
 # Fallback versions if CLI compose file is unavailable
 DEFAULT_IMAGES = {
-    'traefik': 'traefik:v3.6.1',
+    'traefik': 'traefik:v3.6.7',
     'postgres': 'postgres:14',
     'rabbitmq': 'rabbitmq:4-alpine',
 }

@@ -212,6 +212,7 @@ set_env_var "THEME_BASE" "$(get_or_default THEME_BASE gray)"
 set_env_var "THEME_COLOR" "$(get_or_default THEME_COLOR blue)"
 set_env_var "TIPI_VERSION" "v${CLI_VERSION}"
 set_env_var "TZ" "${AS_NAS_TIMEZONE:-UTC}"
+set_env_var "MAX_BACKUPS" "$(get_or_default MAX_BACKUPS 0)"
 
 # Database settings (preserve passwords if they exist)
 existing_pg_pass=$(grep -E "^POSTGRES_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || echo "")

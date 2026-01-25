@@ -89,7 +89,7 @@ pull_image() {
     fi
 }
 
-pull_image "traefik:v3.6.1" "Traefik"
+pull_image "traefik:v3.6.7" "Traefik"
 pull_image "postgres:14" "PostgreSQL"
 pull_image "rabbitmq:4-alpine" "RabbitMQ"
 

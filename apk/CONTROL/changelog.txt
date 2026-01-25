@@ -4,6 +4,30 @@
 
 ---
 
+## [4.7.1] - 2026-01-25
+
+### 🚀 Runtipi v4.7.1
+
+> 🚨 **Critical security patch** - Update strongly recommended
+
+| Type | Description |
+|------|-------------|
+| 🔒 Security | Fix authenticated RCE vulnerability via backup filenames (GHSA-vrgf-rcj5-6gv9) |
+| ✨ Feature | Native `docker-compose.yml` support with `x-runtipi` meta tags for custom apps |
+| ✨ Feature | View docker-compose and app.env files in new "Files" tab |
+| ✨ Feature | "Force Pull" option to force Docker image download |
+| 🐛 Fix | Fix UDP ports regression in generated compose files |
+
+### 📦 ASUSTOR Package
+
+#### 🔧 Changed
+
+| Area | Description |
+|------|-------------|
+| 🐳 Traefik | Update v3.6.1 → v3.6.7 (CVE-2025-66490, CVE-2025-66491, CVE-2026-22045) |
+| 🔄 ENV Mapping | Fix `listenIp` → `INTERNAL_IP` (was incorrectly mapped to `SERVER_ADDR`) |
+| ➕ Variable | Add `MAX_BACKUPS` support to limit backup retention |
+
 ## [4.6.5.r2] - 2026-01-25
 
 > 📦 **Package revision** - Runtipi version unchanged (v4.6.5)
