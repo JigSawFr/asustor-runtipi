@@ -20,7 +20,7 @@ jobs:
     if: ${{ !github.event.release.prerelease || github.event_name == 'workflow_dispatch' }}
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -50,7 +50,7 @@ jobs:
           cd apk/bin && sha256sum *.apk > checksums.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: asustor-packages-${{ steps.version.outputs.version }}
           path: |
