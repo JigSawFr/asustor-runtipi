@@ -50,7 +50,7 @@ jobs:
           cd apk/bin && sha256sum *.apk > checksums.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: asustor-packages-${{ steps.version.outputs.version }}
           path: |
