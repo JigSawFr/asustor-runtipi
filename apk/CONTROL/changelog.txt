@@ -4,6 +4,27 @@
 
 ---
 
+## [4.7.2] - 2026-02-02
+
+### 🚀 Runtipi v4.7.2
+
+> 🚨 **Critical security patch** - Update strongly recommended
+
+| Type | Description |
+|------|-------------|
+| 🔒 Security | Fix unauthenticated path traversal and potential RCE vulnerability (GHSA-mwg8-x997-cqw6) |
+| 🔧 Hardening | All code paths using user-provided values are now properly sanitized |
+
+### 📦 ASUSTOR Package
+
+#### 🔧 Changed
+
+| Area | Description |
+|------|-------------|
+| 🐳 Docker | Update Runtipi image v4.7.1 → v4.7.2 |
+
+---
+
 ## [4.7.1] - 2026-01-25
 
 ### 🚀 Runtipi v4.7.1
