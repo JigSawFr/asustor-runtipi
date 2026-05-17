@@ -109,7 +109,7 @@ jobs:
 
       - name: Create pre-release
         if: steps.check.outputs.update == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.check.outputs.latest }}
           name: "🔍 [Review] Runtipi ${{ steps.check.outputs.latest }}"
